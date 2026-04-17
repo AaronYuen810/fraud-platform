@@ -1,10 +1,21 @@
 # Fraud Detection MVP
 
-Simple end-to-end fraud detection baseline with:
-- Mock transaction simulation
-- Partial fraud labels from colluding accounts
-- Leakage-safe transaction feature engineering
-- XGBoost training and single-transaction scoring
+**fraud-platform** is a Python fraud-detection MVP: an end-to-end baseline from synthetic transactions through features, an XGBoost model, and single-transaction scoring—not a production fraud stack.
+
+## Walkthrough
+
+**What it is.** A small **baseline** you can run locally: mock data with partial fraud signal (including labels tied to colluding accounts), **leakage-safe** feature engineering, **XGBoost** training, and **single-transaction** scoring.
+
+**Pipeline.**
+
+1. **Simulate** — [`src/data/simulate_transactions.py`](src/data/simulate_transactions.py) using [`config/simulation.yaml`](config/simulation.yaml).
+2. **Features** — [`src/features/build_features.py`](src/features/build_features.py) builds a modeling dataset with features available at scoring time.
+3. **Train** — [`src/models/train_xgboost.py`](src/models/train_xgboost.py) fits XGBoost and writes artifacts under `models/` (for example `xgboost_fraud_model.json` and metrics).
+4. **Score** — [`src/models/score_transaction.py`](src/models/score_transaction.py) scores one new transaction JSON using the trained model and transaction history.
+
+**Stack and tooling.** Python **3.11–3.13** (`requires-python` is `>=3.11,<3.14` in [`pyproject.toml`](pyproject.toml)); install and run with **uv**. Core libraries: NumPy, pandas, scikit-learn, XGBoost, PyYAML. **MLflow** is optional for experiment tracking (see below). **Makefile** and **docker-compose** support a local MLflow tracking server.
+
+**Summary.** Simulate data, build honest features, train XGBoost, score incoming transactions, and optionally log experiments with MLflow.
 
 ## Quickstart (uv)
 
