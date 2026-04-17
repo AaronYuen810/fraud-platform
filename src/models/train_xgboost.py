@@ -14,6 +14,11 @@ from sklearn.metrics import (
 )
 from xgboost import XGBClassifier
 
+try:
+    import mlflow
+except Exception:  # pragma: no cover
+    mlflow = None
+
 
 FEATURE_COLUMNS = [
     "amount",
@@ -70,6 +75,31 @@ def compute_metrics(y_true: np.ndarray, probs: np.ndarray, threshold: float) -> 
     return metrics
 
 
+def _parse_json_dict(raw: str | None) -> dict[str, str]:
+    if not raw:
+        return {}
+    loaded = json.loads(raw)
+    if not isinstance(loaded, dict):
+        raise ValueError("--mlflow-tags must be a JSON object")
+    return {str(k): str(v) for k, v in loaded.items()}
+
+
+def _coerce_param_value(value: object) -> object:
+    if value is None:
+        return None
+    if isinstance(value, (str, int, float, bool)):
+        return value
+    if isinstance(value, Path):
+        return str(value)
+    if isinstance(value, np.generic):
+        return value.item()
+    return str(value)
+
+
+def _flatten_params(prefix: str, params: dict[str, object]) -> dict[str, object]:
+    return {f"{prefix}{k}": _coerce_param_value(v) for k, v in params.items()}
+
+
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Train baseline XGBoost fraud model.")
     parser.add_argument(
@@ -89,6 +119,41 @@ def parse_args() -> argparse.Namespace:
         type=Path,
         default=Path("models/training_metrics.json"),
         help="Output path for metrics and metadata.",
+    )
+    parser.add_argument(
+        "--mlflow",
+        action="store_true",
+        help="Enable MLflow tracking for this run.",
+    )
+    parser.add_argument(
+        "--mlflow-tracking-uri",
+        type=str,
+        default=os.environ.get("MLFLOW_TRACKING_URI"),
+        help="MLflow tracking URI (e.g. file:./mlruns or http://localhost:5000).",
+    )
+    parser.add_argument(
+        "--mlflow-experiment",
+        type=str,
+        default=os.environ.get("MLFLOW_EXPERIMENT_NAME"),
+        help="MLflow experiment name (will be created if missing).",
+    )
+    parser.add_argument(
+        "--mlflow-run-name",
+        type=str,
+        default="train_xgboost",
+        help="MLflow run name.",
+    )
+    parser.add_argument(
+        "--mlflow-tags",
+        type=str,
+        default=None,
+        help='Optional JSON object of MLflow tags (e.g. {"stage":"dev"}).',
+    )
+    parser.add_argument(
+        "--mlflow-log-model",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="Whether to log the saved model file as an MLflow artifact.",
     )
     return parser.parse_args()
 
@@ -116,6 +181,16 @@ def main() -> None:
     negatives = max(int(len(y_train) - y_train.sum()), 1)
     scale_pos_weight = negatives / positives
 
+    mlflow_enabled = bool(args.mlflow)
+    if mlflow_enabled and mlflow is None:
+        raise RuntimeError(
+            "MLflow tracking requested (--mlflow) but mlflow could not be imported."
+        )
+    if mlflow_enabled and args.mlflow_tracking_uri:
+        mlflow.set_tracking_uri(args.mlflow_tracking_uri)
+    if mlflow_enabled and args.mlflow_experiment:
+        mlflow.set_experiment(args.mlflow_experiment)
+
     model = XGBClassifier(
         n_estimators=240,
         max_depth=4,
@@ -127,14 +202,42 @@ def main() -> None:
         random_state=42,
         scale_pos_weight=scale_pos_weight,
     )
-    model.fit(X_train, y_train)
 
-    val_probs = model.predict_proba(X_val)[:, 1]
-    threshold = select_threshold(y_val, val_probs)
+    if mlflow_enabled:
+        tags = _parse_json_dict(args.mlflow_tags)
+        with mlflow.start_run(run_name=args.mlflow_run_name, tags=tags):
+            mlflow.log_params(_flatten_params("xgb.", model.get_params()))
+            mlflow.log_param("data.input_path", str(args.input))
+            mlflow.log_param("data.train_rows", int(len(train_df)))
+            mlflow.log_param("data.val_rows", int(len(val_df)))
+            mlflow.log_param("data.test_rows", int(len(test_df)))
+            mlflow.log_param("derived.scale_pos_weight", float(scale_pos_weight))
 
-    test_probs = model.predict_proba(X_test)[:, 1]
-    metrics_against_label = compute_metrics(y_test_label, test_probs, threshold)
-    metrics_against_truth = compute_metrics(y_test_truth, test_probs, threshold)
+            model.fit(X_train, y_train)
+
+            val_probs = model.predict_proba(X_val)[:, 1]
+            threshold = select_threshold(y_val, val_probs)
+            mlflow.log_param("derived.threshold", float(threshold))
+
+            test_probs = model.predict_proba(X_test)[:, 1]
+            metrics_against_label = compute_metrics(y_test_label, test_probs, threshold)
+            metrics_against_truth = compute_metrics(y_test_truth, test_probs, threshold)
+
+            mlflow.log_metric("auprc", float(metrics_against_truth["pr_auc"]))
+            mlflow.log_metric("auroc", float(metrics_against_truth["roc_auc"]))
+            mlflow.log_metric("f1", float(metrics_against_truth["f1"]))
+            mlflow.log_metric("precision", float(metrics_against_truth["precision"]))
+            mlflow.log_metric("recall", float(metrics_against_truth["recall"]))
+            mlflow.log_metric("positive_rate", float(metrics_against_truth["positive_rate"]))
+    else:
+        model.fit(X_train, y_train)
+
+        val_probs = model.predict_proba(X_val)[:, 1]
+        threshold = select_threshold(y_val, val_probs)
+
+        test_probs = model.predict_proba(X_test)[:, 1]
+        metrics_against_label = compute_metrics(y_test_label, test_probs, threshold)
+        metrics_against_truth = compute_metrics(y_test_truth, test_probs, threshold)
 
     args.model_output.parent.mkdir(parents=True, exist_ok=True)
     args.metrics_output.parent.mkdir(parents=True, exist_ok=True)
@@ -153,44 +256,16 @@ def main() -> None:
     with args.metrics_output.open("w", encoding="utf-8") as f:
         json.dump(payload, f, indent=2)
 
+    if mlflow_enabled:
+        if args.mlflow_log_model:
+            mlflow.log_artifact(str(args.model_output))
+        mlflow.log_artifact(str(args.metrics_output))
+
     print(f"Saved model to {args.model_output}")
     print(f"Saved metrics to {args.metrics_output}")
     print("Threshold:", round(threshold, 4))
     print("Test PR-AUC (label):", round(metrics_against_label["pr_auc"], 4))
     print("Test PR-AUC (truth):", round(metrics_against_truth["pr_auc"], 4))
-
-    enable_mlflow = os.getenv("ENABLE_MLFLOW", "").strip().lower() in {"1", "true", "yes", "y"}
-    if enable_mlflow:
-        try:
-            import mlflow
-        except ImportError:
-            print("ENABLE_MLFLOW is set, but mlflow is not installed. Run `uv sync`.")
-        else:
-            mlflow.set_experiment("fraud-xgb")
-            with mlflow.start_run():
-                model_params = model.get_params()
-                mlflow.log_params(
-                    {
-                        k: (v if isinstance(v, (str, int, float, bool, type(None))) else str(v))
-                        for k, v in model_params.items()
-                    }
-                )
-                mlflow.log_params(
-                    {
-                        "threshold": float(threshold),
-                        "train_rows": int(len(train_df)),
-                        "val_rows": int(len(val_df)),
-                        "test_rows": int(len(test_df)),
-                    }
-                )
-                mlflow.log_metrics(
-                    {
-                        **{f"label_{k}": float(v) for k, v in metrics_against_label.items()},
-                        **{f"truth_{k}": float(v) for k, v in metrics_against_truth.items()},
-                    }
-                )
-                mlflow.log_artifact(str(args.model_output))
-                mlflow.log_artifact(str(args.metrics_output))
 
 
 if __name__ == "__main__":

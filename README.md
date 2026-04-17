@@ -30,10 +30,33 @@ make mlflow-up
 
 Then open `http://localhost:5000`.
 
+For training with MLflow as the experiment tracker, you can use the Makefile target:
+
+```bash
+make training-mlflow
+```
+
+To log to the local tracking server started above:
+
+```bash
+make training-mlflow MLFLOW_TRACKING_URI=http://localhost:5000
+```
+
 To log runs to this server from Python, set:
 
 ```bash
 export MLFLOW_TRACKING_URI=http://localhost:5000
+```
+
+Then pass `--mlflow` when training:
+
+```bash
+DYLD_LIBRARY_PATH=/opt/homebrew/opt/libomp/lib uv run src/models/train_xgboost.py \
+  --mlflow \
+  --mlflow-experiment fraud-xgb \
+  --input data/processed/model_dataset.csv \
+  --model-output models/xgboost_fraud_model.json \
+  --metrics-output models/training_metrics.json
 ```
 
 To stop the service:

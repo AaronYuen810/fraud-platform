@@ -5,6 +5,7 @@ Summary: Fraud detection MVP with simulation and XGBoost scoring
 Requires-Python: <3.14,>=3.11
 Requires-Dist: numpy
 Requires-Dist: pandas
+Requires-Dist: mlflow
 Requires-Dist: pyyaml
 Requires-Dist: scikit-learn
 Requires-Dist: xgboost
