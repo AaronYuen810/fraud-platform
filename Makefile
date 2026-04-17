@@ -1,6 +1,6 @@
 DYLD_LIBRARY_PATH := /opt/homebrew/opt/libomp/lib:$(DYLD_LIBRARY_PATH)
 
-.PHONY: sync mlflow-up mlflow-logs simulate features training training-mlflow score mlflow-down
+.PHONY: sync mlflow-up simulate features training-mlflow score mlflow-down
 
 mlflow-up:
 	docker compose up -d mlflow

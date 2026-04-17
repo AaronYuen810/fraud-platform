@@ -205,30 +205,38 @@ def main() -> None:
 
     if mlflow_enabled:
         tags = _parse_json_dict(args.mlflow_tags)
-        with mlflow.start_run(run_name=args.mlflow_run_name, tags=tags):
-            mlflow.log_params(_flatten_params("xgb.", model.get_params()))
-            mlflow.log_param("data.input_path", str(args.input))
-            mlflow.log_param("data.train_rows", int(len(train_df)))
-            mlflow.log_param("data.val_rows", int(len(val_df)))
-            mlflow.log_param("data.test_rows", int(len(test_df)))
-            mlflow.log_param("derived.scale_pos_weight", float(scale_pos_weight))
+        # When executed via MLflow Projects (`mlflow run`), an active run already exists.
+        # Avoid creating a nested run (which shows up as a second entry in the UI).
+        active = mlflow.active_run()
+        if active is None:
+            mlflow.start_run(run_name=args.mlflow_run_name)
+        mlflow.set_tag("mlflow.runName", args.mlflow_run_name)
+        if tags:
+            mlflow.set_tags(tags)
 
-            model.fit(X_train, y_train)
+        mlflow.log_params(_flatten_params("xgb.", model.get_params()))
+        mlflow.log_param("data.input_path", str(args.input))
+        mlflow.log_param("data.train_rows", int(len(train_df)))
+        mlflow.log_param("data.val_rows", int(len(val_df)))
+        mlflow.log_param("data.test_rows", int(len(test_df)))
+        mlflow.log_param("derived.scale_pos_weight", float(scale_pos_weight))
 
-            val_probs = model.predict_proba(X_val)[:, 1]
-            threshold = select_threshold(y_val, val_probs)
-            mlflow.log_param("derived.threshold", float(threshold))
+        model.fit(X_train, y_train)
 
-            test_probs = model.predict_proba(X_test)[:, 1]
-            metrics_against_label = compute_metrics(y_test_label, test_probs, threshold)
-            metrics_against_truth = compute_metrics(y_test_truth, test_probs, threshold)
+        val_probs = model.predict_proba(X_val)[:, 1]
+        threshold = select_threshold(y_val, val_probs)
+        mlflow.log_param("derived.threshold", float(threshold))
 
-            mlflow.log_metric("auprc", float(metrics_against_truth["pr_auc"]))
-            mlflow.log_metric("auroc", float(metrics_against_truth["roc_auc"]))
-            mlflow.log_metric("f1", float(metrics_against_truth["f1"]))
-            mlflow.log_metric("precision", float(metrics_against_truth["precision"]))
-            mlflow.log_metric("recall", float(metrics_against_truth["recall"]))
-            mlflow.log_metric("positive_rate", float(metrics_against_truth["positive_rate"]))
+        test_probs = model.predict_proba(X_test)[:, 1]
+        metrics_against_label = compute_metrics(y_test_label, test_probs, threshold)
+        metrics_against_truth = compute_metrics(y_test_truth, test_probs, threshold)
+
+        mlflow.log_metric("auprc", float(metrics_against_truth["pr_auc"]))
+        mlflow.log_metric("auroc", float(metrics_against_truth["roc_auc"]))
+        mlflow.log_metric("f1", float(metrics_against_truth["f1"]))
+        mlflow.log_metric("precision", float(metrics_against_truth["precision"]))
+        mlflow.log_metric("recall", float(metrics_against_truth["recall"]))
+        mlflow.log_metric("positive_rate", float(metrics_against_truth["positive_rate"]))
     else:
         model.fit(X_train, y_train)
 
@@ -260,6 +268,8 @@ def main() -> None:
         if args.mlflow_log_model:
             mlflow.log_artifact(str(args.model_output))
         mlflow.log_artifact(str(args.metrics_output))
+        if mlflow.active_run() is not None:
+            mlflow.end_run()
 
     print(f"Saved model to {args.model_output}")
     print(f"Saved metrics to {args.metrics_output}")
