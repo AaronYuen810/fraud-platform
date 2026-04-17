@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 from pathlib import Path
 
 import numpy as np
@@ -157,6 +158,39 @@ def main() -> None:
     print("Threshold:", round(threshold, 4))
     print("Test PR-AUC (label):", round(metrics_against_label["pr_auc"], 4))
     print("Test PR-AUC (truth):", round(metrics_against_truth["pr_auc"], 4))
+
+    enable_mlflow = os.getenv("ENABLE_MLFLOW", "").strip().lower() in {"1", "true", "yes", "y"}
+    if enable_mlflow:
+        try:
+            import mlflow
+        except ImportError:
+            print("ENABLE_MLFLOW is set, but mlflow is not installed. Run `uv sync`.")
+        else:
+            mlflow.set_experiment("fraud-xgb")
+            with mlflow.start_run():
+                model_params = model.get_params()
+                mlflow.log_params(
+                    {
+                        k: (v if isinstance(v, (str, int, float, bool, type(None))) else str(v))
+                        for k, v in model_params.items()
+                    }
+                )
+                mlflow.log_params(
+                    {
+                        "threshold": float(threshold),
+                        "train_rows": int(len(train_df)),
+                        "val_rows": int(len(val_df)),
+                        "test_rows": int(len(test_df)),
+                    }
+                )
+                mlflow.log_metrics(
+                    {
+                        **{f"label_{k}": float(v) for k, v in metrics_against_label.items()},
+                        **{f"truth_{k}": float(v) for k, v in metrics_against_truth.items()},
+                    }
+                )
+                mlflow.log_artifact(str(args.model_output))
+                mlflow.log_artifact(str(args.metrics_output))
 
 
 if __name__ == "__main__":

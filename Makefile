@@ -1,6 +1,15 @@
 DYLD_LIBRARY_PATH := /opt/homebrew/opt/libomp/lib:$(DYLD_LIBRARY_PATH)
 
-.PHONY: sync simulate features training score e2e
+.PHONY: mlflow-up mlflow-logs mlflow-down sync simulate features training score e2e
+
+mlflow-up:
+	docker compose up -d mlflow
+
+mlflow-logs:
+	docker compose logs -f mlflow
+
+mlflow-down:
+	docker compose down
 
 sync:
 	uv sync
