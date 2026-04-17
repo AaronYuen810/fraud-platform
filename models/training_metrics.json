@@ -1,0 +1,38 @@
+{
+  "feature_columns": [
+    "amount",
+    "hour_of_day",
+    "day_of_week",
+    "sender_idx",
+    "beneficiary_idx",
+    "sender_txn_count_1h",
+    "sender_txn_count_24h",
+    "sender_avg_amount_24h",
+    "sender_std_amount_24h",
+    "pair_txn_count_24h",
+    "seconds_since_last_pair_txn",
+    "beneficiary_inbound_count_1h",
+    "beneficiary_unique_senders_24h"
+  ],
+  "threshold": 0.05,
+  "train_rows": 4200,
+  "val_rows": 900,
+  "test_rows": 900,
+  "scale_pos_weight": 20.105527638190956,
+  "metrics_against_observed_label": {
+    "pr_auc": 0.3652323738647604,
+    "roc_auc": 0.944529316837009,
+    "precision": 0.36,
+    "recall": 0.9818181818181818,
+    "f1": 0.526829268292683,
+    "positive_rate": 0.16666666666666666
+  },
+  "metrics_against_ground_truth": {
+    "pr_auc": 0.9999999999999999,
+    "roc_auc": 1.0,
+    "precision": 1.0,
+    "recall": 0.9868421052631579,
+    "f1": 0.9933774834437086,
+    "positive_rate": 0.16666666666666666
+  }
+}

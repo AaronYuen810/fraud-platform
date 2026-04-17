@@ -1,0 +1,15 @@
+[project]
+name = "fraud-platform"
+version = "0.1.0"
+description = "Fraud detection MVP with simulation and XGBoost scoring"
+requires-python = ">=3.11,<3.14"
+dependencies = [
+  "numpy",
+  "pandas",
+  "pyyaml",
+  "scikit-learn",
+  "xgboost",
+]
+
+[tool.uv]
+package = true

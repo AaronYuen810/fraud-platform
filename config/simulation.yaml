@@ -1,0 +1,11 @@
+seed: 42
+num_accounts: 30
+num_colluding_accounts: 5
+num_transactions: 6000
+fraud_ratio: 0.16
+label_capture_rate: 0.35
+start_timestamp: "2026-01-01T00:00:00"
+end_timestamp: "2026-03-31T23:59:59"
+structuring_threshold: 10000
+output_transactions_path: "data/raw/transactions.csv"
+output_metadata_path: "data/raw/simulation_metadata.json"
