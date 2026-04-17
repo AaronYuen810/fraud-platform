@@ -14,6 +14,8 @@ import yaml
 
 @dataclass
 class SimulationConfig:
+    """Configuration for synthetic transaction simulation."""
+
     seed: int = 42
     num_accounts: int = 30
     num_colluding_accounts: int = 5
@@ -28,6 +30,14 @@ class SimulationConfig:
 
 
 def load_config(config_path: Path | None) -> SimulationConfig:
+    """Load simulation configuration from YAML or return defaults.
+
+    Args:
+        config_path: Path to a YAML config file. If None, defaults are used.
+
+    Returns:
+        A populated `SimulationConfig`.
+    """
     if config_path is None:
         return SimulationConfig()
     with config_path.open("r", encoding="utf-8") as f:
@@ -36,12 +46,14 @@ def load_config(config_path: Path | None) -> SimulationConfig:
 
 
 def _random_normal_amount(rng: np.random.Generator) -> float:
+    """Sample a realistic non-fraud amount from a heavy-tailed distribution."""
     # Lognormal gives a realistic heavy-tailed amount distribution.
     amount = rng.lognormal(mean=6.2, sigma=0.9)
     return float(np.clip(amount, 5, 30_000))
 
 
 def _fraud_amount(rng: np.random.Generator, threshold: float) -> float:
+    """Sample a fraud-like amount (often near a threshold, sometimes above it)."""
     near = rng.uniform(threshold * 0.96, threshold * 0.999)
     if rng.random() < 0.35:
         near = rng.uniform(threshold * 1.2, threshold * 2.2)
@@ -51,11 +63,24 @@ def _fraud_amount(rng: np.random.Generator, threshold: float) -> float:
 def _uniform_timestamp(
     rng: np.random.Generator, start_ts: pd.Timestamp, end_ts: pd.Timestamp
 ) -> pd.Timestamp:
+    """Draw a timestamp uniformly at random between `start_ts` and `end_ts`."""
     seconds = (end_ts - start_ts).total_seconds()
     return start_ts + pd.to_timedelta(rng.uniform(0, seconds), unit="s")
 
 
 def simulate_transactions(config: SimulationConfig) -> tuple[pd.DataFrame, dict[str, Any]]:
+    """Generate a synthetic transaction dataset and accompanying metadata.
+
+    Args:
+        config: Simulation configuration.
+
+    Returns:
+        (transactions_df, metadata) where `transactions_df` is time-ordered and
+        `metadata` contains summary statistics and generator settings.
+
+    Raises:
+        ValueError: If the simulation produces invalid self-transfers.
+    """
     rng = np.random.default_rng(config.seed)
     accounts = [f"A{i:03d}" for i in range(1, config.num_accounts + 1)]
     colluding_accounts = sorted(
@@ -156,6 +181,7 @@ def simulate_transactions(config: SimulationConfig) -> tuple[pd.DataFrame, dict[
 
 
 def save_outputs(df: pd.DataFrame, metadata: dict[str, Any], config: SimulationConfig) -> None:
+    """Persist the generated transactions CSV and metadata JSON to disk."""
     tx_path = Path(config.output_transactions_path)
     md_path = Path(config.output_metadata_path)
     tx_path.parent.mkdir(parents=True, exist_ok=True)
@@ -166,6 +192,7 @@ def save_outputs(df: pd.DataFrame, metadata: dict[str, Any], config: SimulationC
 
 
 def parse_args() -> argparse.Namespace:
+    """Parse CLI arguments for the transaction simulator."""
     parser = argparse.ArgumentParser(description="Simulate fraud transaction data.")
     parser.add_argument(
         "--config",
@@ -177,6 +204,7 @@ def parse_args() -> argparse.Namespace:
 
 
 def main() -> None:
+    """CLI entrypoint for generating synthetic transaction data."""
     args = parse_args()
     config = load_config(args.config)
     df, metadata = simulate_transactions(config)

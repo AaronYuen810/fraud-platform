@@ -12,12 +12,17 @@ import pandas as pd
 
 @dataclass
 class HistoryWindow:
+    """A rolling window of timestamps and amounts for one sender."""
+
     timestamps: deque[pd.Timestamp]
     amounts: deque[float]
 
 
 class FeatureState:
+    """Mutable state for leakage-safe, streaming feature computation."""
+
     def __init__(self) -> None:
+        """Initialize empty per-entity histories used for feature computation."""
         self.sender_events: dict[str, HistoryWindow] = defaultdict(
             lambda: HistoryWindow(deque(), deque())
         )
@@ -29,6 +34,7 @@ class FeatureState:
     def _trim_timestamp_deque(
         dq: deque[pd.Timestamp], now: pd.Timestamp, window_seconds: int
     ) -> None:
+        """Trim timestamps older than `window_seconds` relative to `now`."""
         cutoff = now - pd.Timedelta(seconds=window_seconds)
         while dq and dq[0] < cutoff:
             dq.popleft()
@@ -37,6 +43,7 @@ class FeatureState:
     def _trim_sender_events(
         hist: HistoryWindow, now: pd.Timestamp, window_seconds: int
     ) -> None:
+        """Trim sender event history older than `window_seconds` relative to `now`."""
         cutoff = now - pd.Timedelta(seconds=window_seconds)
         while hist.timestamps and hist.timestamps[0] < cutoff:
             hist.timestamps.popleft()
@@ -46,6 +53,7 @@ class FeatureState:
     def _trim_beneficiary_senders(
         dq: deque[tuple[pd.Timestamp, str]], now: pd.Timestamp, window_seconds: int
     ) -> None:
+        """Trim (timestamp, sender) events older than `window_seconds` relative to `now`."""
         cutoff = now - pd.Timedelta(seconds=window_seconds)
         while dq and dq[0][0] < cutoff:
             dq.popleft()
@@ -53,6 +61,17 @@ class FeatureState:
     def compute_row_features(
         self, timestamp: pd.Timestamp, amount: float, sender: str, beneficiary: str
     ) -> dict[str, float]:
+        """Compute features for a transaction without mutating state.
+
+        Args:
+            timestamp: Transaction timestamp.
+            amount: Transaction amount.
+            sender: Sender account ID (e.g. "A001").
+            beneficiary: Beneficiary account ID (e.g. "A002").
+
+        Returns:
+            A feature dict suitable for model input.
+        """
         sender_hist = self.sender_events[sender]
         self._trim_sender_events(sender_hist, timestamp, 24 * 3600)
 
@@ -96,6 +115,7 @@ class FeatureState:
         }
 
     def update(self, timestamp: pd.Timestamp, amount: float, sender: str, beneficiary: str) -> None:
+        """Update state with an observed transaction (after feature computation)."""
         sender_hist = self.sender_events[sender]
         sender_hist.timestamps.append(timestamp)
         sender_hist.amounts.append(float(amount))
@@ -105,6 +125,20 @@ class FeatureState:
 
 
 def build_features(transactions_df: pd.DataFrame) -> pd.DataFrame:
+    """Build leakage-safe features for a batch of transactions.
+
+    The input is sorted by timestamp and features are computed per row using only
+    historical context (no future leakage).
+
+    Args:
+        transactions_df: Raw transactions with required columns.
+
+    Returns:
+        A dataframe containing identifiers/labels plus engineered feature columns.
+
+    Raises:
+        ValueError: If required columns are missing or self-transfers are present.
+    """
     required = {
         "transaction_id",
         "timestamp",
@@ -159,6 +193,15 @@ def build_features(transactions_df: pd.DataFrame) -> pd.DataFrame:
 def build_features_for_incoming(
     history_rows: Iterable[dict[str, object]], incoming_row: dict[str, object]
 ) -> dict[str, float]:
+    """Compute features for a single incoming transaction given prior history.
+
+    Args:
+        history_rows: Historical transaction rows used as feature context.
+        incoming_row: A single transaction row to score.
+
+    Returns:
+        A feature dict aligned with the training feature schema.
+    """
     state = FeatureState()
     history_df = pd.DataFrame(list(history_rows))
     if not history_df.empty:
@@ -182,6 +225,7 @@ def build_features_for_incoming(
 
 
 def parse_args() -> argparse.Namespace:
+    """Parse CLI arguments for building the feature dataset."""
     parser = argparse.ArgumentParser(description="Build leakage-safe transaction features.")
     parser.add_argument(
         "--input",
@@ -199,6 +243,7 @@ def parse_args() -> argparse.Namespace:
 
 
 def main() -> None:
+    """CLI entrypoint for feature generation."""
     args = parse_args()
     df = pd.read_csv(args.input)
     features = build_features(df)
