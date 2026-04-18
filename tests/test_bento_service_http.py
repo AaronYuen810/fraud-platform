@@ -70,6 +70,7 @@ def test_http_predict_returns_scoring_payload(bento_test_client: TestClient):
     body = _full_feature_json()
     r = bento_test_client.post("/predict", json=body)
     assert r.status_code == 200
+    data = r.json()
     assert "fraud_score" in data
     assert 0.0 <= data["fraud_score"] <= 1.0
     assert data["threshold"] == pytest.approx(0.42)
