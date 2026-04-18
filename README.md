@@ -17,6 +17,55 @@
 
 **Summary.** Simulate data, build honest features, train XGBoost, score incoming transactions, and optionally log experiments with MLflow.
 
+For raw-transaction scoring via the API, the repo also uses **[Feast](https://feast.dev/)** ([`feature_repo/`](feature_repo/)) and a small **[streaming worker](src/streaming/)**—see **Architecture** below.
+
+## Architecture
+
+Overview of how the batch pipeline, optional MLflow, Feast, and BentoML serving fit together.
+
+```mermaid
+flowchart TB
+  subgraph batchPipe [Batch offline pipeline]
+    simConfig[config/simulation.yaml]
+    sim[simulate_transactions]
+    raw[data/raw/transactions.csv]
+    bf[build_features]
+    ds[data/processed/model_dataset.csv]
+    tr[train_xgboost]
+    arts[models/]
+    simConfig --> sim --> raw --> bf --> ds --> tr --> arts
+  end
+
+  subgraph mlflowGrp [MLflow optional]
+    mlflowSrv[Tracking server]
+    reg[Model Registry]
+    mlflowSrv --- reg
+  end
+
+  tr -.->|log runs| mlflowSrv
+  promote[promote_model] -.->|aliases| reg
+
+  subgraph serve [BentoML serving]
+    bento[FraudScoringService]
+    pred["/predict"]
+    scoreEP["/v1/transactions:score"]
+    q[transaction queue]
+    wrk[streaming worker]
+    feast[(Feast online store)]
+    xgb[XGBoost]
+    bento --> pred
+    bento --> scoreEP
+    pred --> xgb
+    scoreEP --> q --> wrk --> feast
+    feast --> xgb
+  end
+
+  arts -->|load| bento
+  reg -.->|MLFLOW_MODEL_URI| bento
+```
+
+The **batch pipeline** is file-based: simulation and `build_features` produce `data/processed/model_dataset.csv` for training; that path does **not** require Feast. **MLflow** (optional) records training runs and can host a **Model Registry**; [`src/mlops/promote_model.py`](src/mlops/promote_model.py) can promote a version to the `champion` alias. The **BentoML** service loads `models/` (or a registry URI). **`/predict`** accepts a precomputed feature vector and scores it directly. **`/v1/transactions:score`** enqueues a raw transaction for the in-process **streaming worker**, which computes the same rolling features as batch code, **pushes** them to the Feast **online** store ([`feature_repo/feature_store.yaml`](feature_repo/feature_store.yaml)), then reads them back and runs **XGBoost**. For batch-style scoring from the CLI, use [`src/models/score_transaction.py`](src/models/score_transaction.py) with transaction history instead.
+
 ## Quickstart (uv)
 
 ```bash
@@ -39,7 +88,7 @@ Start a local MLflow Tracking Server (persists data under `./mlflow-data/`):
 make mlflow-up
 ```
 
-Then open `http://localhost:5000`.
+Then open `http://localhost:5001` (host port from [`docker-compose.yml`](docker-compose.yml); use `http://localhost:5000` if you run MLflow on the host with `--port 5000`).
 
 For training with MLflow as the experiment tracker, you can use the Makefile target:
 
@@ -50,13 +99,13 @@ make training-mlflow
 To log to the local tracking server started above:
 
 ```bash
-make training-mlflow MLFLOW_TRACKING_URI=http://localhost:5000
+make training-mlflow MLFLOW_TRACKING_URI=http://localhost:5001
 ```
 
 To log runs to this server from Python, set:
 
 ```bash
-export MLFLOW_TRACKING_URI=http://localhost:5000
+export MLFLOW_TRACKING_URI=http://localhost:5001
 ```
 
 Then pass `--mlflow` when training:
@@ -103,7 +152,7 @@ Conventions (see [`src/mlops/registry_constants.py`](src/mlops/registry_constant
 
 ```bash
 uv run python -m src.mlops.promote_model \
-  --tracking-uri http://localhost:5000 \
+  --tracking-uri http://localhost:5001 \
   --model-name fraud_xgb_classifier \
   --version 1 \
   --alias champion \
@@ -111,7 +160,7 @@ uv run python -m src.mlops.promote_model \
   --min-f1 0.0
 ```
 
-Or `make promote-model VERSION=1 MLFLOW_TRACKING_URI=http://localhost:5000` (add `MLFLOW_TRACKING_URI` in your shell if not using the Makefile default).
+Or `make promote-model VERSION=1 MLFLOW_TRACKING_URI=http://localhost:5001` (add `MLFLOW_TRACKING_URI` in your shell if not using the Makefile default).
 
 ### MLflow tracking backend (team or production)
 
@@ -139,7 +188,7 @@ The service loads either **local files** or a **Model Registry URI**:
 Set `MLFLOW_MODEL_URI` to a pinned reference, for example `models:/fraud_xgb_classifier@champion` or `models:/fraud_xgb_classifier/3`. The process resolves the training run, downloads `training_metrics.json`, and loads the XGBoost model with MLflow. Set `MLFLOW_TRACKING_URI` to match your tracking server.
 
 ```bash
-export MLFLOW_TRACKING_URI=http://localhost:5000
+export MLFLOW_TRACKING_URI=http://localhost:5001
 export MLFLOW_MODEL_URI=models:/fraud_xgb_classifier@champion
 # Optional: cache directory for downloaded artifacts (default is a temp directory)
 # export MLFLOW_MODEL_CACHE_DIR=/var/cache/mlflow_models
