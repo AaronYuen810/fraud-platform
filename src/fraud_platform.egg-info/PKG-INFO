@@ -3,6 +3,7 @@ Name: fraud-platform
 Version: 0.1.0
 Summary: Fraud detection MVP with simulation and XGBoost scoring
 Requires-Python: <3.14,>=3.11
+Requires-Dist: bentoml
 Requires-Dist: numpy
 Requires-Dist: pandas
 Requires-Dist: mlflow

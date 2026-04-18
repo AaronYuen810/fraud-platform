@@ -16,8 +16,10 @@ from xgboost import XGBClassifier
 
 try:
     import mlflow
+    from mlflow.models import infer_signature
 except Exception:  # pragma: no cover
     mlflow = None
+    infer_signature = None  # type: ignore[misc, assignment]
 
 
 FEATURE_COLUMNS = [
@@ -153,7 +155,13 @@ def parse_args() -> argparse.Namespace:
         "--mlflow-log-model",
         action=argparse.BooleanOptionalAction,
         default=True,
-        help="Whether to log the saved model file as an MLflow artifact.",
+        help="Log the trained estimator with mlflow.xgboost.log_model (signature + input example).",
+    )
+    parser.add_argument(
+        "--mlflow-registered-model-name",
+        type=str,
+        default=os.environ.get("MLFLOW_REGISTERED_MODEL_NAME"),
+        help="If set, register the logged model under this Model Registry name (same as log_model registered_model_name).",
     )
     return parser.parse_args()
 
@@ -185,6 +193,10 @@ def main() -> None:
     if mlflow_enabled and mlflow is None:
         raise RuntimeError(
             "MLflow tracking requested (--mlflow) but mlflow could not be imported."
+        )
+    if mlflow_enabled and infer_signature is None:
+        raise RuntimeError(
+            "MLflow tracking requested (--mlflow) but mlflow.models.infer_signature could not be imported."
         )
     if mlflow_enabled and args.mlflow_tracking_uri:
         mlflow.set_tracking_uri(args.mlflow_tracking_uri)
@@ -266,7 +278,16 @@ def main() -> None:
 
     if mlflow_enabled:
         if args.mlflow_log_model:
-            mlflow.log_artifact(str(args.model_output))
+            sample_X = X_train.head(200)
+            signature = infer_signature(sample_X, model.predict_proba(sample_X))
+            log_kwargs: dict[str, object] = {
+                "signature": signature,
+                "input_example": X_train.head(5),
+            }
+            reg_name = (args.mlflow_registered_model_name or "").strip()
+            if reg_name:
+                log_kwargs["registered_model_name"] = reg_name
+            mlflow.xgboost.log_model(model, name="model", **log_kwargs)
         mlflow.log_artifact(str(args.metrics_output))
         if mlflow.active_run() is not None:
             mlflow.end_run()
