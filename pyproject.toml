@@ -11,6 +11,7 @@ dependencies = [
   "pyyaml",
   "scikit-learn",
   "xgboost",
+  "feast>=0.62.0",
 ]
 
 [tool.uv]
