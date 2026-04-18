@@ -11,6 +11,14 @@ from starlette.testclient import TestClient
 from xgboost import XGBClassifier
 
 from src.models.train_xgboost import FEATURE_COLUMNS
+from src.streaming.worker import reset_streaming_pipeline_for_tests
+
+
+@pytest.fixture(autouse=True)
+def _reset_streaming_state_between_tests() -> None:
+    """Isolate FeatureState + queue between HTTP tests (streaming pipeline is process-global)."""
+    reset_streaming_pipeline_for_tests()
+    yield
 
 
 def _full_feature_json() -> dict[str, float]:
@@ -114,7 +122,8 @@ def test_http_transactions_score_returns_scoring_payload(bento_test_client: Test
 
     r2 = bento_test_client.post("/v1/transactions:score", json=_valid_raw_transaction_body())
     assert r2.status_code == 200
-    assert r2.json().get("transaction_id") is None
+    tid2 = r2.json().get("transaction_id")
+    assert isinstance(tid2, str) and len(tid2) > 0
 
 
 def test_http_transactions_score_validation_error_on_incomplete_body(bento_test_client: TestClient):

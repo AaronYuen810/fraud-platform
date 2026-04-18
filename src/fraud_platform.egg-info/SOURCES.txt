@@ -3,6 +3,11 @@ pyproject.toml
 src/__init__.py
 src/data/__init__.py
 src/data/simulate_transactions.py
+src/feature_store/__init__.py
+src/feature_store/constants.py
+src/feature_store/reader.py
+src/feature_store/store.py
+src/feature_store/writer.py
 src/features/__init__.py
 src/features/build_features.py
 src/fraud_platform.egg-info/PKG-INFO
@@ -22,4 +27,5 @@ src/serving/contracts.py
 src/serving/mlflow_model_loader.py
 tests/test_bento_service.py
 tests/test_bento_service_http.py
+tests/test_feast_integration.py
 tests/test_mlops_promote.py

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import os
+import uuid
 from pathlib import Path
 from typing import Any
 
@@ -10,10 +11,11 @@ import numpy as np
 from pydantic import BaseModel, ConfigDict, Field, create_model
 from xgboost import XGBClassifier
 
-from src.features.build_features import build_features_for_incoming
+from src.feature_store.reader import wait_for_features
 from src.models.train_xgboost import FEATURE_COLUMNS
 from src.serving.contracts import RawTransactionRequest, ScoreResponse
 from src.serving.mlflow_model_loader import env_load_bundle
+from src.streaming import TransactionEvent, ensure_worker_started, enqueue_transaction
 
 
 DEFAULT_MODEL_PATH = "models/xgboost_fraud_model.json"
@@ -97,6 +99,7 @@ class FraudScoringService:
             self.model.load_model(str(model_path))
 
         self.feature_columns, self.threshold = _load_training_metadata(self.metrics_path)
+        ensure_worker_started()
 
     @bentoml.api(route="/predict", input_spec=PredictRequest)
     def predict(self, **kwargs: Any) -> PredictResponse:
@@ -112,16 +115,20 @@ class FraudScoringService:
 
     @bentoml.api(route="/v1/transactions:score", input_spec=RawTransactionRequest)
     def score_transaction(self, **kwargs: Any) -> ScoreResponse:
-        """Build features from a raw transaction, score, and return with optional correlation id."""
+        """Enqueue raw transaction for streaming feature computation; read from Feast, then score."""
         raw = RawTransactionRequest(**kwargs)
-        row_dict = {
-            "timestamp": raw.timestamp,
-            "amount": raw.amount,
-            "sender_account": raw.sender_account,
-            "beneficiary_account": raw.beneficiary_account,
-        }
-        features = build_features_for_incoming([], row_dict)
-        predict_request = PredictRequest(**features)
+        transaction_id = raw.transaction_id or str(uuid.uuid4())
+        enqueue_transaction(
+            TransactionEvent(
+                transaction_id=transaction_id,
+                timestamp=raw.timestamp,
+                amount=raw.amount,
+                sender_account=raw.sender_account,
+                beneficiary_account=raw.beneficiary_account,
+            )
+        )
+        served_features = wait_for_features(transaction_id)
+        predict_request = PredictRequest(**served_features)
         pred = run_predict(
             self.feature_columns,
             self.threshold,
@@ -135,6 +142,6 @@ class FraudScoringService:
             flagged=pred.flagged,
             model_id=pred.model_id,
             feature_order=pred.feature_order,
-            transaction_id=raw.transaction_id,
+            transaction_id=transaction_id,
         )
 
