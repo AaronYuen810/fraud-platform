@@ -4,6 +4,7 @@ version = "0.1.0"
 description = "Fraud detection MVP with simulation and XGBoost scoring"
 requires-python = ">=3.11,<3.14"
 dependencies = [
+  "bentoml",
   "numpy",
   "pandas",
   "mlflow",
@@ -14,3 +15,12 @@ dependencies = [
 
 [tool.uv]
 package = true
+
+[dependency-groups]
+dev = [
+    "pytest>=9.0.3",
+]
+
+[tool.pytest.ini_options]
+pythonpath = ["."]
+testpaths = ["tests"]
