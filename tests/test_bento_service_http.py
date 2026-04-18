@@ -87,6 +87,51 @@ def test_http_predict_validation_error_on_incomplete_body(bento_test_client: Tes
     assert "error" in err
 
 
+def _valid_raw_transaction_body(**overrides: object) -> dict:
+    base = {
+        "timestamp": "2024-06-01T12:00:00Z",
+        "amount": 250.5,
+        "sender_account": "A001",
+        "beneficiary_account": "A002",
+    }
+    base.update(overrides)
+    return base
+
+
+def test_http_transactions_score_returns_scoring_payload(bento_test_client: TestClient):
+    body = _valid_raw_transaction_body(transaction_id="corr-tx-001")
+    r = bento_test_client.post("/v1/transactions:score", json=body)
+    assert r.status_code == 200
+    data = r.json()
+    assert "fraud_score" in data
+    assert 0.0 <= data["fraud_score"] <= 1.0
+    assert data["threshold"] == pytest.approx(0.42)
+    assert isinstance(data["flagged"], bool)
+    assert data["model_id"] == "integration-test-model"
+    assert data["feature_order"] == list(FEATURE_COLUMNS)
+    assert data["transaction_id"] == "corr-tx-001"
+    assert data["flagged"] == (data["fraud_score"] >= data["threshold"])
+
+    r2 = bento_test_client.post("/v1/transactions:score", json=_valid_raw_transaction_body())
+    assert r2.status_code == 200
+    assert r2.json().get("transaction_id") is None
+
+
+def test_http_transactions_score_validation_error_on_incomplete_body(bento_test_client: TestClient):
+    r = bento_test_client.post("/v1/transactions:score", json={"amount": 1.0})
+    assert r.status_code == 400
+    err = r.json()
+    assert "error" in err
+
+
+def test_http_transactions_score_rejects_self_transfer(bento_test_client: TestClient):
+    body = _valid_raw_transaction_body(sender_account="A001", beneficiary_account="A001")
+    r = bento_test_client.post("/v1/transactions:score", json=body)
+    assert r.status_code == 400
+    err = r.json()
+    assert "error" in err
+
+
 def test_http_openapi_spec_available(bento_test_client: TestClient):
     r = bento_test_client.get("/docs.json")
     assert r.status_code == 200

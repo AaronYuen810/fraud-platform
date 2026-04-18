@@ -10,7 +10,9 @@ import numpy as np
 from pydantic import BaseModel, ConfigDict, Field, create_model
 from xgboost import XGBClassifier
 
+from src.features.build_features import build_features_for_incoming
 from src.models.train_xgboost import FEATURE_COLUMNS
+from src.serving.contracts import RawTransactionRequest, ScoreResponse
 from src.serving.mlflow_model_loader import env_load_bundle
 
 
@@ -106,5 +108,33 @@ class FraudScoringService:
             self.model_id,
             self.model,
             request,
+        )
+
+    @bentoml.api(route="/v1/transactions:score", input_spec=RawTransactionRequest)
+    def score_transaction(self, **kwargs: Any) -> ScoreResponse:
+        """Build features from a raw transaction, score, and return with optional correlation id."""
+        raw = RawTransactionRequest(**kwargs)
+        row_dict = {
+            "timestamp": raw.timestamp,
+            "amount": raw.amount,
+            "sender_account": raw.sender_account,
+            "beneficiary_account": raw.beneficiary_account,
+        }
+        features = build_features_for_incoming([], row_dict)
+        predict_request = PredictRequest(**features)
+        pred = run_predict(
+            self.feature_columns,
+            self.threshold,
+            self.model_id,
+            self.model,
+            predict_request,
+        )
+        return ScoreResponse(
+            fraud_score=pred.fraud_score,
+            threshold=pred.threshold,
+            flagged=pred.flagged,
+            model_id=pred.model_id,
+            feature_order=pred.feature_order,
+            transaction_id=raw.transaction_id,
         )
 
