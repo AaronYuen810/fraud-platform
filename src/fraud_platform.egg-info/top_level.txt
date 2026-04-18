@@ -1,5 +1,7 @@
 __init__
 data
+feature_store
 features
+mlops
 models
 serving

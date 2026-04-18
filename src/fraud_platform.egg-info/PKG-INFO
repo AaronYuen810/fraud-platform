@@ -10,3 +10,4 @@ Requires-Dist: mlflow
 Requires-Dist: pyyaml
 Requires-Dist: scikit-learn
 Requires-Dist: xgboost
+Requires-Dist: feast>=0.62.0

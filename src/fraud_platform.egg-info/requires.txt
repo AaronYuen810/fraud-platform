@@ -5,3 +5,4 @@ mlflow
 pyyaml
 scikit-learn
 xgboost
+feast>=0.62.0
